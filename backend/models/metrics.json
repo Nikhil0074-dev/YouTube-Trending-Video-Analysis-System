@@ -1,0 +1,35 @@
+{
+  "best_model": "Random Forest",
+  "accuracy": 0.5175,
+  "auc_roc": 0.505,
+  "top_features": {
+    "duration_seconds": 0.1375,
+    "description_length": 0.1362,
+    "thumbnail_brightness": 0.1223,
+    "title_length": 0.1175,
+    "tag_count": 0.1012,
+    "upload_hour": 0.1009,
+    "upload_day": 0.0605,
+    "has_text_thumbnail": 0.0225,
+    "has_face_thumbnail": 0.0214,
+    "optimal_tags": 0.0175
+  },
+  "all_models": {
+    "Logistic Regression": {
+      "accuracy": 0.5175,
+      "auc": 0.5167
+    },
+    "Decision Tree": {
+      "accuracy": 0.5,
+      "auc": 0.5028
+    },
+    "Random Forest": {
+      "accuracy": 0.5175,
+      "auc": 0.505
+    },
+    "Gradient Boosting": {
+      "accuracy": 0.5025,
+      "auc": 0.4921
+    }
+  }
+}
