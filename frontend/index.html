@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>YouTube Trending Analyser</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg:        #0a0a0f;
+    --surface:   #12121a;
+    --card:      #1a1a26;
+    --border:    #2a2a3d;
+    --red:       #ff3b3b;
+    --red-dim:   #ff3b3b33;
+    --gold:      #ffc107;
+    --gold-dim:  #ffc10722;
+    --cyan:      #00e5ff;
+    --cyan-dim:  #00e5ff22;
+    --green:     #00e676;
+    --green-dim: #00e67622;
+    --text:      #e8e8f0;
+    --muted:     #6b6b8a;
+    --font:      'Space Grotesk', sans-serif;
+    --mono:      'JetBrains Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid noise overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h1v1H0z' fill='%23ffffff08'/%3E%3C/svg%3E");
+    background-size: 2px 2px;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed; left: 0; top: 0; bottom: 0;
+    width: 220px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    z-index: 10; padding: 0 0 24px 0;
+  }
+
+  .logo {
+    padding: 28px 24px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo-mark {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 10px;
+    background: var(--red); color: #fff;
+    font-size: 18px; font-weight: 700; margin-bottom: 10px;
+  }
+  .logo h1 { font-size: 15px; font-weight: 700; line-height: 1.3; }
+  .logo span { font-size: 11px; color: var(--muted); font-weight: 400; }
+
+  .nav { padding: 16px 12px; flex: 1; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    cursor: pointer; font-size: 13.5px; font-weight: 500;
+    color: var(--muted); transition: all .15s;
+    margin-bottom: 2px; border: none; background: none; width: 100%; text-align: left;
+  }
+  .nav-item:hover, .nav-item.active {
+    background: var(--card); color: var(--text);
+  }
+  .nav-item.active { color: var(--red); background: var(--red-dim); }
+  .nav-icon { font-size: 16px; }
+
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green); margin: 0 24px 0 auto;
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Main ── */
+  .main {
+    margin-left: 220px;
+    padding: 32px 36px;
+    position: relative; z-index: 1;
+    min-height: 100vh;
+  }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ── Page header ── */
+  .page-header { margin-bottom: 28px; }
+  .page-header h2 { font-size: 22px; font-weight: 700; }
+  .page-header p  { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+  /* ── Stats row ── */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px;
+    position: relative; overflow: hidden;
+    transition: border-color .2s;
+  }
+  .stat-card:hover { border-color: var(--red); }
+  .stat-card .accent {
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  }
+  .stat-card .label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .stat-card .value { font-size: 26px; font-weight: 700; margin: 6px 0 2px; font-family: var(--mono); }
+  .stat-card .sub   { font-size: 12px; color: var(--muted); }
+
+  /* ── Charts grid ── */
+  .charts-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 24px; }
+  .chart-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px;
+  }
+  .chart-card.full { grid-column: 1 / -1; }
+  .chart-title { font-size: 13px; font-weight: 700; text-transform: uppercase;
+                 letter-spacing: .08em; color: var(--muted); margin-bottom: 16px; }
+  .chart-wrap { position: relative; height: 240px; }
+  .chart-wrap.tall { height: 300px; }
+
+  /* ── Table ── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted); font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .07em;
+  }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+  tbody tr:hover { background: var(--surface); }
+  tbody td { padding: 10px 14px; }
+  .badge {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; font-family: var(--mono);
+  }
+  .badge-red   { background: var(--red-dim);   color: var(--red); }
+  .badge-green { background: var(--green-dim); color: var(--green); }
+  .badge-gold  { background: var(--gold-dim);  color: var(--gold); }
+  .badge-cyan  { background: var(--cyan-dim);  color: var(--cyan); }
+
+  /* ── Predictor form ── */
+  .predictor {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .form-group input, .form-group select {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); border-radius: 8px; padding: 9px 12px;
+    font-size: 13px; font-family: var(--font);
+    transition: border-color .15s; outline: none;
+  }
+  .form-group input:focus, .form-group select:focus { border-color: var(--red); }
+  .form-group select option { background: var(--surface); }
+
+  .btn {
+    padding: 11px 24px; border-radius: 10px; cursor: pointer;
+    font-weight: 700; font-size: 13.5px; border: none;
+    font-family: var(--font); transition: all .15s;
+  }
+  .btn-red {
+    background: var(--red); color: #fff;
+    box-shadow: 0 4px 20px #ff3b3b44;
+  }
+  .btn-red:hover { background: #ff5555; transform: translateY(-1px); }
+  .btn-red:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+  /* ── Prediction result panel ── */
+  .result-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 24px; height: 100%;
+  }
+  .prob-ring { position: relative; width: 140px; height: 140px; margin: 16px auto; }
+  .prob-ring canvas { width: 140px !important; height: 140px !important; }
+  .prob-center {
+    position: absolute; inset: 0; display: flex;
+    flex-direction: column; align-items: center; justify-content: center;
+  }
+  .prob-value { font-size: 28px; font-weight: 700; font-family: var(--mono); }
+  .prob-label { font-size: 11px; color: var(--muted); }
+
+  .advice-list { margin-top: 16px; }
+  .advice-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; line-height: 1.5;
+  }
+  .advice-item:last-child { border: none; }
+  .advice-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+
+  /* ── Recs page ── */
+  .rec-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  .rec-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px;
+  }
+  .rec-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+  .tip-item {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px; line-height: 1.5;
+  }
+  .tip-item:last-child { border: none; }
+  .impact-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+  .impact-high   { background: var(--red); }
+  .impact-medium { background: var(--gold); }
+  .impact-low    { background: var(--muted); }
+  .tip-reason { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+  /* ── Loading spinner ── */
+  .loader {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 200px; color: var(--muted); font-size: 13px; gap: 10px;
+  }
+  .spin {
+    width: 18px; height: 18px; border: 2px solid var(--border);
+    border-top-color: var(--red); border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Feature importance bars ── */
+  .feat-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 12.5px; }
+  .feat-name { width: 200px; color: var(--muted); flex-shrink: 0; }
+  .feat-bar-wrap { flex: 1; background: var(--surface); border-radius: 99px; height: 7px; }
+  .feat-bar { height: 7px; border-radius: 99px; background: var(--red); }
+  .feat-val { width: 50px; text-align: right; font-family: var(--mono); font-size: 11px; }
+
+  /* ── Correlation cells ── */
+  .corr-wrap { overflow-x: auto; }
+  .corr-table { font-size: 11px; font-family: var(--mono); }
+  .corr-table th, .corr-table td { padding: 6px 10px; text-align: center; }
+  .corr-table th { color: var(--muted); font-size: 10px; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 28px; right: 28px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 18px; font-size: 13px;
+    display: none; z-index: 999; box-shadow: 0 8px 32px #00000066;
+    animation: slideIn .3s ease;
+  }
+  @keyframes slideIn { from{transform:translateY(10px);opacity:0} to{transform:none;opacity:1} }
+
+  @media(max-width:900px){
+    .sidebar{width:60px}
+    .logo h1,.logo span,.nav-item span{display:none}
+    .nav-icon{font-size:20px}
+    .main{margin-left:60px;padding:20px}
+    .stats-row{grid-template-columns:1fr 1fr}
+    .charts-grid{grid-template-columns:1fr}
+    .predictor{grid-template-columns:1fr}
+    .rec-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">▶</div>
+    <h1>Trending<br>Analyser</h1>
+    <span>YouTube Data Mining</span>
+  </div>
+  <div class="nav">
+    <button class="nav-item active" onclick="goto('overview')">
+      <span class="nav-icon">📊</span><span>Overview</span>
+    </button>
+    <button class="nav-item" onclick="goto('categories')">
+      <span class="nav-icon">🎬</span><span>Categories</span>
+    </button>
+    <button class="nav-item" onclick="goto('timing')">
+      <span class="nav-icon">⏰</span><span>Upload Timing</span>
+    </button>
+    <button class="nav-item" onclick="goto('factors')">
+      <span class="nav-icon">🔍</span><span>Factors</span>
+    </button>
+    <button class="nav-item" onclick="goto('predictor')">
+      <span class="nav-icon">🤖</span><span>Predictor</span>
+    </button>
+    <button class="nav-item" onclick="goto('recommendations')">
+      <span class="nav-icon">💡</span><span>Tips</span>
+    </button>
+    <button class="nav-item" onclick="goto('model')">
+      <span class="nav-icon">🧠</span><span>ML Model</span>
+    </button>
+  </div>
+  <div class="status-dot" title="API connected"></div>
+</nav>
+
+<!-- Main content -->
+<main class="main">
+
+  <!-- OVERVIEW -->
+  <div class="page active" id="page-overview">
+    <div class="page-header">
+      <h2>Dashboard Overview</h2>
+      <p>High-level stats across the trending video dataset</p>
+    </div>
+    <div class="stats-row" id="stats-row">
+      <div class="loader"><div class="spin"></div> Loading…</div>
+    </div>
+    <div class="charts-grid">
+      <div class="chart-card full">
+        <div class="chart-title">Top Videos by Views</div>
+        <div class="chart-wrap" id="top-videos-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Views vs Likes Correlation</div>
+        <div class="chart-wrap" id="scatter-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Trending vs Non-Trending</div>
+        <div class="chart-wrap" id="donut-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Top Trending Videos</div>
+      <div id="top-table"><div class="loader"><div class="spin"></div></div></div>
+    </div>
+  </div>
+
+  <!-- CATEGORIES -->
+  <div class="page" id="page-categories">
+    <div class="page-header"><h2>Category Analysis</h2><p>Which categories dominate trending</p></div>
+    <div class="charts-grid">
+      <div class="chart-card full">
+        <div class="chart-title">Average Views per Category</div>
+        <div class="chart-wrap tall" id="cat-views-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Trending Rate by Category (%)</div>
+        <div class="chart-wrap" id="cat-trend-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Video Count per Category</div>
+        <div class="chart-wrap" id="cat-count-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIMING -->
+  <div class="page" id="page-timing">
+    <div class="page-header"><h2>Upload Timing</h2><p>When to upload for best trending probability</p></div>
+    <div class="charts-grid">
+      <div class="chart-card full">
+        <div class="chart-title">Trending Rate by Upload Hour</div>
+        <div class="chart-wrap" id="hour-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+      <div class="chart-card full">
+        <div class="chart-title">Trending Rate by Day of Week</div>
+        <div class="chart-wrap" id="day-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FACTORS -->
+  <div class="page" id="page-factors">
+    <div class="page-header"><h2>Key Factors</h2><p>What influences trending probability</p></div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-title">Tag Count vs Trending Rate</div>
+        <div class="chart-wrap" id="tags-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Title Length vs Trending Rate</div>
+        <div class="chart-wrap" id="title-wrap">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+      <div class="chart-card full">
+        <div class="chart-title">Thumbnail Analysis</div>
+        <div id="thumb-section" style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:8px">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PREDICTOR -->
+  <div class="page" id="page-predictor">
+    <div class="page-header"><h2>Trending Predictor</h2><p>Input your video details and get a trending probability score</p></div>
+    <div class="predictor">
+      <div class="chart-card">
+        <div class="chart-title" style="margin-bottom:18px">Video Details</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Upload Hour (0–23)</label>
+            <input type="number" id="f-hour" min="0" max="23" value="19">
+          </div>
+          <div class="form-group">
+            <label>Upload Day</label>
+            <select id="f-day">
+              <option value="0">Monday</option><option value="1">Tuesday</option>
+              <option value="2">Wednesday</option><option value="3">Thursday</option>
+              <option value="4">Friday</option><option value="5">Saturday</option>
+              <option value="6" selected>Sunday</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Title Length (chars)</label>
+            <input type="number" id="f-title-len" value="52">
+          </div>
+          <div class="form-group">
+            <label>Tag Count</label>
+            <input type="number" id="f-tags" value="10">
+          </div>
+          <div class="form-group">
+            <label>Description Length</label>
+            <input type="number" id="f-desc" value="600">
+          </div>
+          <div class="form-group">
+            <label>Duration (seconds)</label>
+            <input type="number" id="f-duration" value="600">
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="f-category">
+              <option value="10">Music</option>
+              <option value="20">Gaming</option>
+              <option value="24" selected>Entertainment</option>
+              <option value="22">People & Blogs</option>
+              <option value="25">News & Politics</option>
+              <option value="27">Education</option>
+              <option value="28">Science & Tech</option>
+              <option value="17">Sports</option>
+              <option value="23">Comedy</option>
+              <option value="26">Howto & Style</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Thumbnail Brightness (0–255)</label>
+            <input type="number" id="f-bright" value="180">
+          </div>
+          <div class="form-group">
+            <label>Face in Thumbnail?</label>
+            <select id="f-face"><option value="1">Yes</option><option value="0">No</option></select>
+          </div>
+          <div class="form-group">
+            <label>Text in Thumbnail?</label>
+            <select id="f-text"><option value="1">Yes</option><option value="0">No</option></select>
+          </div>
+        </div>
+        <button class="btn btn-red" id="predict-btn" style="margin-top:20px;width:100%" onclick="runPredict()">
+          🤖 Predict Trending Probability
+        </button>
+      </div>
+      <div class="result-panel" id="result-panel">
+        <div class="chart-title">Prediction Result</div>
+        <div id="result-content" style="text-align:center;color:var(--muted);font-size:13px;padding:40px 0">
+          Fill in the form and click Predict
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECOMMENDATIONS -->
+  <div class="page" id="page-recommendations">
+    <div class="page-header"><h2>Creator Tips</h2><p>Data-driven recommendations to maximise trending probability</p></div>
+    <div class="rec-grid" id="recs-grid">
+      <div class="loader"><div class="spin"></div></div>
+    </div>
+  </div>
+
+  <!-- ML MODEL -->
+  <div class="page" id="page-model">
+    <div class="page-header"><h2>ML Model</h2><p>Feature importances and model performance</p></div>
+    <div class="charts-grid">
+      <div class="chart-card full">
+        <div class="chart-title">Feature Importance (Random Forest)</div>
+        <div id="feat-imp-section">
+          <div class="loader"><div class="spin"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+const API = '';   // same origin; change to 'http://127.0.0.1:5000' for dev
+
+// ── Chart registry (destroy before re-create) ────────
+const charts = {};
+function destroyChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
+
+// ── Navigation ───────────────────────────────────────
+function goto(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  event.currentTarget.classList.add('active');
+  loadPage(page);
+}
+
+const loaded = new Set();
+function loadPage(page){
+  if(loaded.has(page)) return;
+  loaded.add(page);
+  ({
+    overview:        loadOverview,
+    categories:      loadCategories,
+    timing:          loadTiming,
+    factors:         loadFactors,
+    recommendations: loadRecs,
+    model:           loadModel,
+  }[page] || (()=>{}))();
+}
+
+// ── Fetch helper ─────────────────────────────────────
+async function apiFetch(path){
+  const r = await fetch(API+path);
+  if(!r.ok) throw new Error(`API ${path} → ${r.status}`);
+  return r.json();
+}
+
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.style.display='block';
+  setTimeout(()=>{t.style.display='none';},3000);
+}
+
+// ── Colours ──────────────────────────────────────────
+const C = {
+  red:'#ff3b3b', gold:'#ffc107', cyan:'#00e5ff',
+  green:'#00e676', purple:'#9c27b0',
+  muted:'#6b6b8a', text:'#e8e8f0',
+  palette:['#ff3b3b','#ffc107','#00e5ff','#00e676','#9c27b0',
+            '#ff7043','#26c6da','#ab47bc','#66bb6a','#ef5350'],
+};
+
+function baseChartOpts(type='bar'){
+  return {
+    type,
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      animation:{duration:600,easing:'easeOutQuart'},
+      plugins:{
+        legend:{labels:{color:C.text,font:{family:"'Space Grotesk'",size:12}}},
+        tooltip:{
+          backgroundColor:'#1a1a26', borderColor:'#2a2a3d', borderWidth:1,
+          titleColor:C.text, bodyColor:C.muted,
+          titleFont:{family:"'Space Grotesk'",size:12,weight:'bold'},
+          bodyFont:{family:"'Space Grotesk'",size:11},
+        }
+      },
+      scales:{
+        x:{grid:{color:'#2a2a3d22'},ticks:{color:C.muted,font:{size:11}}},
+        y:{grid:{color:'#2a2a3d55'},ticks:{color:C.muted,font:{size:11}}},
+      }
+    }
+  };
+}
+
+function makeCanvas(wrapperId){
+  const wrap = document.getElementById(wrapperId);
+  wrap.innerHTML = '';
+  const c = document.createElement('canvas');
+  wrap.appendChild(c);
+  return c;
+}
+
+// ── OVERVIEW ─────────────────────────────────────────
+async function loadOverview(){
+  try {
+    const [ov, top] = await Promise.all([
+      apiFetch('/api/overview'),
+      apiFetch('/api/top-videos'),
+    ]);
+
+    // Stat cards
+    const row = document.getElementById('stats-row');
+    row.innerHTML = `
+      ${statCard('Total Videos', ov.total_videos.toLocaleString(), 'in dataset', C.red)}
+      ${statCard('Trending', ov.trending_videos.toLocaleString(), `${ov.trending_pct}% of total`, C.gold)}
+      ${statCard('Avg Views (Trending)', fmtNum(ov.avg_views_trending), 'per video', C.cyan)}
+      ${statCard('Top Category', ov.top_category, 'by total views', C.green)}
+    `;
+
+    // Top videos bar chart
+    const tvCanvas = makeCanvas('top-videos-wrap');
+    const labels = top.map(v=>v.title.slice(0,30)+'…');
+    charts['top-videos'] = new Chart(tvCanvas, {
+      ...baseChartOpts('bar'),
+      data:{
+        labels,
+        datasets:[{
+          label:'Views',
+          data: top.map(v=>v.views),
+          backgroundColor: C.palette,
+          borderRadius:6, borderSkipped:false,
+        }]
+      },
+    });
+
+    // Scatter – trimmed from dataset (simulate)
+    const scCanvas = makeCanvas('scatter-wrap');
+    const pts = top.map(v=>({x:v.views, y:v.likes}));
+    charts['scatter'] = new Chart(scCanvas, {
+      type:'scatter',
+      data:{datasets:[{
+        label:'Views vs Likes', data:pts,
+        backgroundColor:C.red+'88', pointRadius:6,
+      }]},
+      options:{...baseChartOpts('scatter').options},
+    });
+
+    // Donut
+    const dnCanvas = makeCanvas('donut-wrap');
+    charts['donut'] = new Chart(dnCanvas, {
+      type:'doughnut',
+      data:{
+        labels:['Non-Trending','Trending'],
+        datasets:[{
+          data:[ov.non_trending_videos, ov.trending_videos],
+          backgroundColor:[C.muted+'66',C.red],
+          borderColor:'transparent', borderWidth:0,
+          hoverOffset:8,
+        }]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{position:'bottom',labels:{color:C.text,padding:16,font:{size:12}}},
+          tooltip:{...baseChartOpts().options.plugins.tooltip},
+        }
+      }
+    });
+
+    // Top table
+    document.getElementById('top-table').innerHTML = `
+      <table>
+        <thead><tr>
+          <th>#</th><th>Title</th><th>Category</th>
+          <th>Views</th><th>Likes</th><th>Hour</th><th>Tags</th>
+        </tr></thead>
+        <tbody>
+          ${top.map((v,i)=>`<tr>
+            <td><span class="badge badge-red">${i+1}</span></td>
+            <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v.title}</td>
+            <td><span class="badge badge-cyan">${v.category}</span></td>
+            <td>${fmtNum(v.views)}</td>
+            <td>${fmtNum(v.likes)}</td>
+            <td><span class="badge badge-gold">${v.upload_hour}:00</span></td>
+            <td>${v.tag_count}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch(e){ toast('Overview load failed: '+e.message); }
+}
+
+// ── CATEGORIES ───────────────────────────────────────
+async function loadCategories(){
+  try{
+    const cats = await apiFetch('/api/categories');
+    const labels = cats.map(c=>c.category_name);
+
+    const c1 = makeCanvas('cat-views-wrap');
+    charts['cat-views'] = new Chart(c1,{
+      ...baseChartOpts('bar'),
+      data:{labels,datasets:[{
+        label:'Avg Views', data:cats.map(c=>c.avg_views),
+        backgroundColor:cats.map((_,i)=>C.palette[i%C.palette.length]),
+        borderRadius:6, borderSkipped:false,
+      }]}
+    });
+
+    const c2 = makeCanvas('cat-trend-wrap');
+    charts['cat-trend'] = new Chart(c2,{
+      ...baseChartOpts('bar'),
+      data:{labels,datasets:[{
+        label:'Trending Rate %', data:cats.map(c=>c.trending_rate),
+        backgroundColor:C.gold+'cc', borderRadius:6, borderSkipped:false,
+      }]}
+    });
+
+    const c3 = makeCanvas('cat-count-wrap');
+    charts['cat-count'] = new Chart(c3,{
+      type:'doughnut',
+      data:{labels,datasets:[{
+        data:cats.map(c=>c.total_videos),
+        backgroundColor:cats.map((_,i)=>C.palette[i%C.palette.length]),
+        borderColor:'transparent',
+      }]},
+      options:{responsive:true,maintainAspectRatio:false,
+               plugins:{legend:{position:'right',labels:{color:C.text,font:{size:11},padding:8}},
+                        tooltip:{...baseChartOpts().options.plugins.tooltip}}}
+    });
+  }catch(e){toast('Categories load failed: '+e.message);}
+}
+
+// ── TIMING ───────────────────────────────────────────
+async function loadTiming(){
+  try{
+    const [hours, days] = await Promise.all([
+      apiFetch('/api/upload-hours'),
+      apiFetch('/api/upload-days'),
+    ]);
+
+    // Hour chart
+    const hCanvas = makeCanvas('hour-wrap');
+    charts['hours'] = new Chart(hCanvas,{
+      ...baseChartOpts('bar'),
+      data:{
+        labels:hours.map(h=>h.hour+':00'),
+        datasets:[
+          {label:'Total Videos',data:hours.map(h=>h.total),
+           backgroundColor:C.muted+'44',borderRadius:4,borderSkipped:false,yAxisID:'y'},
+          {label:'Trending Rate %',data:hours.map(h=>h.trending_rate),
+           type:'line',borderColor:C.red,backgroundColor:C.red+'22',
+           fill:true,tension:.3,pointRadius:4,pointBackgroundColor:C.red,yAxisID:'y1'},
+        ]
+      },
+      options:{
+        ...baseChartOpts().options,
+        scales:{
+          x:{...baseChartOpts().options.scales.x},
+          y:{...baseChartOpts().options.scales.y,position:'left'},
+          y1:{...baseChartOpts().options.scales.y,position:'right',
+               grid:{drawOnChartArea:false},
+               ticks:{...baseChartOpts().options.scales.y.ticks,callback:v=>v+'%'}},
+        }
+      }
+    });
+
+    // Day chart
+    const dCanvas = makeCanvas('day-wrap');
+    charts['days'] = new Chart(dCanvas,{
+      ...baseChartOpts('bar'),
+      data:{
+        labels:days.map(d=>d.day),
+        datasets:[{
+          label:'Trending Rate %',
+          data:days.map(d=>d.trending_rate),
+          backgroundColor:days.map(d=>d.trending_rate===Math.max(...days.map(x=>x.trending_rate))?C.gold:C.cyan+'88'),
+          borderRadius:8,borderSkipped:false,
+        }]
+      }
+    });
+  }catch(e){toast('Timing load failed: '+e.message);}
+}
+
+// ── FACTORS ──────────────────────────────────────────
+async function loadFactors(){
+  try{
+    const [tags, titles, thumb] = await Promise.all([
+      apiFetch('/api/tags'),
+      apiFetch('/api/title-length'),
+      apiFetch('/api/thumbnail'),
+    ]);
+
+    const tCanvas = makeCanvas('tags-wrap');
+    charts['tags'] = new Chart(tCanvas,{
+      ...baseChartOpts('bar'),
+      data:{
+        labels:tags.map(t=>t.bucket),
+        datasets:[{
+          label:'Trending Rate %',data:tags.map(t=>t.trending_rate),
+          backgroundColor:tags.map(t=>t.bucket==='9-11'||t.bucket==='6-8'?C.red:C.cyan+'88'),
+          borderRadius:6,borderSkipped:false,
+        }]
+      }
+    });
+
+    const ttCanvas = makeCanvas('title-wrap');
+    charts['titles'] = new Chart(ttCanvas,{
+      ...baseChartOpts('bar'),
+      data:{
+        labels:titles.map(t=>t.bucket),
+        datasets:[{
+          label:'Trending Rate %',data:titles.map(t=>t.trending_rate),
+          backgroundColor:titles.map(t=>t.bucket==='40-60'?C.gold:C.purple+'88'),
+          borderRadius:6,borderSkipped:false,
+        }]
+      }
+    });
+
+    // Thumbnail mini stats
+    document.getElementById('thumb-section').innerHTML = `
+      ${miniStat('Face in Thumbnail',
+        `No face: ${thumb.face_effect.no_face}%`,
+        `With face: ${thumb.face_effect.with_face}%`, '🙂')}
+      ${miniStat('Thumbnail Text',
+        `No text: ${thumb.text_effect.no_text}%`,
+        `With text: ${thumb.text_effect.with_text}%`, '📝')}
+      ${miniStat('Brightness Effect',
+        Object.entries(thumb.brightness_effect).map(([k,v])=>`${k}: ${v}%`).join('<br>'),
+        '', '☀️')}
+    `;
+  }catch(e){toast('Factors load failed: '+e.message);}
+}
+
+// ── PREDICTOR ────────────────────────────────────────
+async function runPredict(){
+  const btn = document.getElementById('predict-btn');
+  btn.disabled=true; btn.textContent='⏳ Predicting…';
+
+  const payload = {
+    upload_hour:            +document.getElementById('f-hour').value,
+    upload_day:             +document.getElementById('f-day').value,
+    title_length:           +document.getElementById('f-title-len').value,
+    tag_count:              +document.getElementById('f-tags').value,
+    description_length:     +document.getElementById('f-desc').value,
+    duration_seconds:       +document.getElementById('f-duration').value,
+    category_id:            +document.getElementById('f-category').value,
+    thumbnail_brightness:   +document.getElementById('f-bright').value,
+    has_face_thumbnail:     +document.getElementById('f-face').value,
+    has_text_thumbnail:     +document.getElementById('f-text').value,
+  };
+
+  try{
+    const res = await fetch(API+'/api/predict',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if(data.error){toast('Prediction error: '+data.error); return;}
+    renderResult(data);
+  }catch(e){
+    toast('Prediction failed — is the server running?');
+  }finally{
+    btn.disabled=false; btn.textContent='🤖 Predict Trending Probability';
+  }
+}
+
+function renderResult(d){
+  const pct = d.probability;
+  const col = pct>70?C.green:pct>50?C.gold:C.red;
+  document.getElementById('result-content').innerHTML = `
+    <div style="margin-bottom:4px">
+      <div style="font-size:42px;font-weight:700;color:${col};font-family:var(--mono)">${pct}%</div>
+      <div style="font-size:14px;color:${col};font-weight:600;margin-top:4px">
+        ${d.trending?'🔥 LIKELY TRENDING':'📉 UNLIKELY TO TREND'}
+      </div>
+    </div>
+    <div style="margin:20px 0">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.08em">Advice</div>
+      ${d.advice.map(a=>`<div style="font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--border);text-align:left;color:${a.includes('🔥')||a.includes('👍')?C.gold:a.includes('📉')?C.red:C.text}">${a}</div>`).join('')}
+    </div>
+    <div style="margin-top:16px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.08em">Top Factors</div>
+      ${d.top_factors.map(f=>`
+        <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px solid var(--border)22">
+          <span style="color:var(--muted)">${f.feature}</span>
+          <span style="font-family:var(--mono)">${f.value}</span>
+        </div>`).join('')}
+    </div>
+  `;
+}
+
+// ── RECOMMENDATIONS ──────────────────────────────────
+async function loadRecs(){
+  try{
+    const recs = await apiFetch('/api/recommendations');
+    const grid = document.getElementById('recs-grid');
+    const {upload_time, tags, thumbnail, title} = recs;
+    grid.innerHTML = `
+      <div class="rec-card">
+        <h3>⏰ Best Upload Time</h3>
+        <div style="margin-bottom:14px">
+          <div style="font-size:13px;color:var(--muted);margin-bottom:4px">Best Hour</div>
+          <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${C.gold}">
+            ${upload_time.best_hour}:00 <span style="font-size:13px;font-weight:400;color:var(--muted)">(${upload_time.best_hour_label})</span>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">Trending rate: ${upload_time.best_hour_trending_rate}%</div>
+        </div>
+        <div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:4px">Best Day</div>
+          <div style="font-size:22px;font-weight:700;color:${C.cyan}">${upload_time.best_day}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">Trending rate: ${upload_time.best_day_trending_rate}%</div>
+        </div>
+      </div>
+      <div class="rec-card">
+        <h3>🏷️ Tag Recommendations</h3>
+        <div style="font-size:22px;font-weight:700;font-family:var(--mono);color:${C.red};margin-bottom:4px">${tags.optimal_range} tags</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Trending rate: ${tags.trending_rate}% | Avg views: ${fmtNum(tags.avg_views_at_range)}</div>
+        <div style="font-size:12.5px;color:var(--muted);line-height:1.6">${tags.tip}</div>
+      </div>
+      <div class="rec-card">
+        <h3>🖼️ Thumbnail Tips</h3>
+        ${thumbnail.map(t=>`
+          <div class="tip-item">
+            <div class="impact-dot impact-${t.impact}"></div>
+            <div>
+              <div style="font-weight:600">${t.tip}</div>
+              <div class="tip-reason">${t.reason}</div>
+            </div>
+          </div>`).join('')}
+      </div>
+      <div class="rec-card">
+        <h3>📝 Title Tips</h3>
+        ${title.map(t=>`
+          <div class="tip-item">
+            <div class="impact-dot impact-${t.impact}"></div>
+            <div>
+              <div style="font-weight:600">${t.tip}</div>
+              <div class="tip-reason">${t.reason}</div>
+            </div>
+          </div>`).join('')}
+      </div>
+    `;
+  }catch(e){toast('Recommendations load failed: '+e.message);}
+}
+
+// ── ML MODEL ─────────────────────────────────────────
+async function loadModel(){
+  try{
+    const feats = await apiFetch('/api/feature-importance');
+    const max   = feats[0]?.importance||1;
+    document.getElementById('feat-imp-section').innerHTML =
+      feats.slice(0,15).map(f=>`
+        <div class="feat-row">
+          <div class="feat-name">${f.feature}</div>
+          <div class="feat-bar-wrap">
+            <div class="feat-bar" style="width:${(f.importance/max*100).toFixed(1)}%"></div>
+          </div>
+          <div class="feat-val">${f.importance}</div>
+        </div>`).join('');
+  }catch(e){
+    document.getElementById('feat-imp-section').innerHTML =
+      `<div style="color:var(--muted);font-size:13px;padding:16px">Model not trained yet. Run: <code style="font-family:var(--mono);color:var(--red)">python ml/train_model.py</code></div>`;
+  }
+}
+
+// ── Helpers ──────────────────────────────────────────
+function fmtNum(n){
+  if(n>=1e6) return (n/1e6).toFixed(1)+'M';
+  if(n>=1e3) return (n/1e3).toFixed(1)+'K';
+  return n;
+}
+
+function statCard(label,value,sub,accent){
+  return `<div class="stat-card">
+    <div class="accent" style="background:${accent}"></div>
+    <div class="label">${label}</div>
+    <div class="value" style="color:${accent}">${value}</div>
+    <div class="sub">${sub}</div>
+  </div>`;
+}
+
+function miniStat(title,line1,line2,icon){
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px">
+    <div style="font-size:22px;margin-bottom:8px">${icon}</div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">${title}</div>
+    <div style="font-size:13px;line-height:1.8">${line1}</div>
+    ${line2?`<div style="font-size:13px;color:var(--gold)">${line2}</div>`:''}
+  </div>`;
+}
+
+// Auto-load overview on startup
+loadPage('overview');
+</script>
+</body>
+</html>
