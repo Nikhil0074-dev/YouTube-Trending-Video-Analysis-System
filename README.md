@@ -2,6 +2,24 @@
 
 A full-stack data mining + ML project that uncovers what makes YouTube videos trend.
 
+
+
+---
+![Screenshot](1.jpeg)
+---
+![Screenshot](2.jpeg)
+---
+![Screenshot](3.jpeg)
+---
+![Screenshot](4.jpeg)
+---
+![Screenshot](5.jpeg)
+---
+![Screenshot](6.jpeg)
+---
+![Screenshot](7.jpeg)
+---
+
 ---
 
 ## What It Does
